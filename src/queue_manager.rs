@@ -3,13 +3,13 @@ use std::{
     thread,
     time::{Duration, SystemTime},
 };
-use redis_module::{ThreadSafeContext, DetachedFromClient};
+use redis_module::{ThreadSafeContext, DetachedFromClient, Context, RedisResult, RedisError};
 use tokio::{
     select,
     sync::mpsc,
     time::{self, Instant},
 };
-use crate::{Mode, msg::Msg};
+use crate::{Mode, msg::Msg, logger};
 
 pub(crate) struct QueueManager {
     // 用来发送新队列或者延迟消息的tx
@@ -55,7 +55,7 @@ impl QueueManager {
                     select! {
                         msg = rx.recv() => {
                             if let Some(msg) = msg {
-                                println!("Got msg {:?}", msg);
+                                logger::log_debug(&thread_ctx, format!("recv msg {:?}", msg).as_str());
                                 heap.push(msg);
                             }
 
@@ -74,7 +74,7 @@ impl QueueManager {
                         () = &mut sleep => {
                             match heap.peek() {
                                 None => {
-                                    println!("timer elapsed");
+                                    logger::log_debug(&thread_ctx, "timer elapsed");
                                     sleep.as_mut().reset(Instant::now() + Duration::from_secs(10));
                                 },
                                 Some(_) => {
@@ -100,15 +100,20 @@ impl QueueManager {
 
     pub(crate) fn push_delay_message(
         &self,
+        ctx: &Context,
         queue_name: String,
         msg: String,
         delay_time: SystemTime,
         mode: Mode,
-    ) {
+    ) -> RedisResult {
         let msg = Msg::new(queue_name, msg, delay_time, mode);
         match self.tx.blocking_send(msg) {
-            Ok(()) => {}
-            Err(_) => panic!("The shared runtime has shut down."),
+            Ok(()) => Ok("Ok".into()),
+            Err(e) => {
+                let err = format!("send message error: {:?}", e);
+                ctx.log_warning(err.as_str());
+                Err(RedisError::String(err))
+            },
         }
     }
 }

@@ -1,3 +1,4 @@
+mod logger;
 mod msg;
 mod queue_manager;
 
@@ -47,7 +48,7 @@ fn deinit(_: &Context) -> Status {
 }
 
 // delay_queue.push {queue_name} {message} {delay_time} {mode}
-fn push_delay_message(_: &Context, args: Vec<RedisString>) -> RedisResult {
+fn push_delay_message(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     if args.len() != 5 {
         return Err(RedisError::WrongArity);
     }
@@ -59,8 +60,7 @@ fn push_delay_message(_: &Context, args: Vec<RedisString>) -> RedisResult {
     let delay_time = SystemTime::now().add(Duration::from_secs(delay));
     MANAGER
         .borrow()
-        .push_delay_message(queue_name, message, delay_time, mode);
-    Ok("OK".into())
+        .push_delay_message(ctx, queue_name, message, delay_time, mode)
 }
 
 //////////////////////////////////////////////////////
