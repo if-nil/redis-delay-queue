@@ -35,12 +35,6 @@ impl Mode {
             )),
         }
     }
-    // fn to_string(&self) -> String {
-    //     match self {
-    //         Mode::P2P => "p2p".to_string(),
-    //         Mode::Broadcast => "broadcast".to_string(),
-    //     }
-    // }
 }
 
 static MANAGER: Lazy<queue_manager::QueueManager> =
