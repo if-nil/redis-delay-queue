@@ -3,59 +3,13 @@ use std::{
     thread,
     time::{Duration, SystemTime},
 };
-
 use redis_module::{ThreadSafeContext, DetachedFromClient};
-use serde::Serialize;
 use tokio::{
     select,
     sync::mpsc,
     time::{self, Instant},
 };
-use uuid::Uuid;
-
-use crate::Mode;
-
-#[derive(Debug, Eq, Serialize)]
-struct Msg {
-    id: String,
-    #[serde(skip)]
-    queue_name: String,
-    msg: String,
-    delay_time: SystemTime,
-    #[serde(skip)]
-    mode: Mode,
-}
-
-impl Msg {
-    fn new(queue_name: String, msg: String, delay_time: SystemTime, mode: Mode) -> Self {
-        let id = Uuid::new_v4().to_string();
-        Self {
-            id,
-            queue_name,
-            msg,
-            delay_time,
-            mode,
-        }
-    }
-}
-
-impl PartialEq for Msg {
-    fn eq(&self, other: &Msg) -> bool {
-        self.delay_time == other.delay_time
-    }
-}
-
-impl Ord for Msg {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.delay_time.cmp(&other.delay_time)
-    }
-}
-
-impl PartialOrd for Msg {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
+use crate::{Mode, msg::Msg};
 
 pub(crate) struct QueueManager {
     // 用来发送新队列或者延迟消息的tx
@@ -94,11 +48,6 @@ impl QueueManager {
             rt.block_on(async move {
                 // 构建延迟队列
                 let mut heap: BinaryHeap<Msg> = BinaryHeap::new();
-                /* test */
-                // let msg = Msg::new();
-                // let now = SystemTime::now();
-                // let sleep_time = msg.delay_time.duration_since(now).unwrap();
-                /* test */
                 let sleep = time::sleep(Duration::from_secs(10));
                 let thread_ctx = ThreadSafeContext::new();
                 tokio::pin!(sleep);

@@ -1,15 +1,12 @@
+mod msg;
 mod queue_manager;
 
 use once_cell::sync::Lazy;
-use redis_module::{
-    redis_module, Context, RedisError, RedisResult, RedisString, RedisValue, Status,
-    ThreadSafeContext,
-};
+use redis_module::{redis_module, Context, RedisError, RedisResult, RedisString, Status};
 use serde::Serialize;
 use std::{
     borrow::Borrow,
     ops::Add,
-    thread,
     time::{Duration, SystemTime},
 };
 
@@ -66,21 +63,6 @@ fn push_delay_message(_: &Context, args: Vec<RedisString>) -> RedisResult {
     Ok("OK".into())
 }
 
-fn async_demo(ctx: &Context, _: Vec<RedisString>) -> RedisResult {
-    let blocked_client = ctx.block_client();
-    thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let thread_ctx = ThreadSafeContext::with_blocked_client(blocked_client);
-            // Replace with the actual delay time
-            let delay_time = Duration::from_secs(5);
-            tokio::time::sleep(delay_time).await;
-            thread_ctx.reply(Ok("42".into()));
-        });
-    });
-    Ok(RedisValue::NoReply)
-}
-
 //////////////////////////////////////////////////////
 
 redis_module! {
@@ -91,8 +73,6 @@ redis_module! {
     init: init,
     deinit: deinit,
     commands: [
-        // ["delay_queue.create", create_delay_queue, "", 0, 0, 0],
         ["delay_queue.push", push_delay_message, "", 0, 0, 0],
-        ["delay_queue.async_demo", async_demo, "", 0, 0, 0],
     ],
 }
