@@ -1,24 +1,28 @@
 use std::{
     collections::BinaryHeap,
     thread,
-    time::{Duration, SystemTime}, future::Future,
+    time::{Duration, SystemTime},
 };
 
+use redis_module::{ThreadSafeContext, DetachedFromClient};
+use serde::Serialize;
 use tokio::{
     select,
     sync::mpsc,
-    time::{self, Instant, Sleep},
+    time::{self, Instant},
 };
 use uuid::Uuid;
 
 use crate::Mode;
 
-#[derive(Debug, Eq)]
+#[derive(Debug, Eq, Serialize)]
 struct Msg {
     id: String,
+    #[serde(skip)]
     queue_name: String,
     msg: String,
     delay_time: SystemTime,
+    #[serde(skip)]
     mode: Mode,
 }
 
@@ -59,8 +63,18 @@ pub(crate) struct QueueManager {
 }
 
 // 发送命令
-async fn pop_message(msg: &Msg) {
-    println!("pop msg {:?}", msg);
+async fn pop_message(msg: &Msg, thread_ctx: &ThreadSafeContext<DetachedFromClient>) {
+    let msg_json = serde_json::to_string(msg).unwrap();
+    let ctx = thread_ctx.lock();
+    match msg.mode {
+        Mode::P2P => {
+            ctx.call("RPUSH", &[msg.queue_name.as_bytes(), msg_json.as_bytes()]).unwrap();
+        },
+        Mode::Broadcast => {
+            ctx.call("PUBLISH", &[msg.queue_name.as_bytes(), msg_json.as_bytes()]).unwrap();
+        }
+    }
+    drop(ctx);
 }
 
 impl QueueManager {
@@ -86,6 +100,7 @@ impl QueueManager {
                 // let sleep_time = msg.delay_time.duration_since(now).unwrap();
                 /* test */
                 let sleep = time::sleep(Duration::from_secs(10));
+                let thread_ctx = ThreadSafeContext::new();
                 tokio::pin!(sleep);
                 loop {
                     select! {
@@ -98,7 +113,7 @@ impl QueueManager {
                             let now = SystemTime::now();
                             while let Some(msg) = heap.peek() {
                                 if msg.delay_time.le(&now) {
-                                    pop_message(msg).await;
+                                    pop_message(msg, &thread_ctx).await;
                                     heap.pop();
                                 } else {
                                     let sleep_time = msg.delay_time.duration_since(now).unwrap();
@@ -117,7 +132,7 @@ impl QueueManager {
                                     let now = SystemTime::now();
                                     while let Some(msg) = heap.peek() {
                                         if msg.delay_time.le(&now) {
-                                            pop_message(msg).await;
+                                            pop_message(msg, &thread_ctx).await;
                                             heap.pop();
                                         } else {
                                             let sleep_time = msg.delay_time.duration_since(now).unwrap();

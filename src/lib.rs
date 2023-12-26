@@ -1,4 +1,3 @@
-mod queue;
 mod queue_manager;
 
 use once_cell::sync::Lazy;
@@ -6,6 +5,7 @@ use redis_module::{
     redis_module, Context, RedisError, RedisResult, RedisString, RedisValue, Status,
     ThreadSafeContext,
 };
+use serde::Serialize;
 use std::{
     borrow::Borrow,
     ops::Add,
@@ -13,14 +13,14 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-#[derive(Debug, Eq)]
+#[derive(Debug, Eq, Serialize)]
 enum Mode {
     P2P,
     Broadcast,
 }
 
 impl PartialEq for Mode {
-    fn eq(&self, other: &Mode) -> bool {
+    fn eq(&self, _: &Mode) -> bool {
         true
     }
 }
@@ -35,12 +35,12 @@ impl Mode {
             )),
         }
     }
-    fn to_string(&self) -> String {
-        match self {
-            Mode::P2P => "p2p".to_string(),
-            Mode::Broadcast => "broadcast".to_string(),
-        }
-    }
+    // fn to_string(&self) -> String {
+    //     match self {
+    //         Mode::P2P => "p2p".to_string(),
+    //         Mode::Broadcast => "broadcast".to_string(),
+    //     }
+    // }
 }
 
 static MANAGER: Lazy<queue_manager::QueueManager> =
