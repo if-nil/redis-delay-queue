@@ -40,7 +40,7 @@ delay_queue.push queue_name message delay_time mode
 ### example
 
 
-### p2p
+#### p2p
 
 ```
 127.0.0.1:6379> delay_queue.push my_queue my_message 5 p2p
