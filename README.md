@@ -18,12 +18,13 @@ cargo build --release
 
 ## Run
 
-### Server
+Server:
+
 ``` bash
 redis-server --loadmodule ./target/release/libredis_delay_queue.so
 ```
 
-### Client
+Client:
 ``` bash
 127.0.0.1:6379> MODULE LOAD /your/path/to/libredis_delay_queue.so
 ```
