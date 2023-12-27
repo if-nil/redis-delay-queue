@@ -1,15 +1,17 @@
+use crate::{logger, msg::Msg, Mode};
+use redis_module::{Context, DetachedFromClient, RedisError, RedisResult, ThreadSafeContext};
 use std::{
     collections::BinaryHeap,
     thread,
     time::{Duration, SystemTime},
 };
-use redis_module::{ThreadSafeContext, DetachedFromClient, Context, RedisResult, RedisError};
 use tokio::{
     select,
     sync::mpsc,
     time::{self, Instant},
 };
-use crate::{Mode, msg::Msg, logger};
+
+const SLEEP_SECOND: u64 = 10;
 
 pub(crate) struct QueueManager {
     // 用来发送新队列或者延迟消息的tx
@@ -22,10 +24,12 @@ async fn pop_message(msg: &Msg, thread_ctx: &ThreadSafeContext<DetachedFromClien
     let ctx = thread_ctx.lock();
     match msg.mode {
         Mode::P2P => {
-            ctx.call("RPUSH", &[msg.queue_name.as_bytes(), msg_json.as_bytes()]).unwrap();
-        },
+            ctx.call("RPUSH", &[msg.queue_name.as_bytes(), msg_json.as_bytes()])
+                .unwrap();
+        }
         Mode::Broadcast => {
-            ctx.call("PUBLISH", &[msg.queue_name.as_bytes(), msg_json.as_bytes()]).unwrap();
+            ctx.call("PUBLISH", &[msg.queue_name.as_bytes(), msg_json.as_bytes()])
+                .unwrap();
         }
     }
     drop(ctx);
@@ -48,9 +52,10 @@ impl QueueManager {
             rt.block_on(async move {
                 // 构建延迟队列
                 let mut heap: BinaryHeap<Msg> = BinaryHeap::new();
-                let sleep = time::sleep(Duration::from_secs(10));
+                let sleep = time::sleep(Duration::from_secs(SLEEP_SECOND));
                 let thread_ctx = ThreadSafeContext::new();
                 tokio::pin!(sleep);
+                let mut done = true;
                 loop {
                     select! {
                         msg = rx.recv() => {
@@ -58,7 +63,20 @@ impl QueueManager {
                                 logger::log_debug(&thread_ctx, format!("recv msg {:?}", msg).as_str());
                                 heap.push(msg);
                             }
-
+                            done = false;
+                        },
+                        () = &mut sleep => {
+                            match heap.peek() {
+                                None => {
+                                    logger::log_debug(&thread_ctx, "timer elapsed");
+                                },
+                                Some(_) => {
+                                    done = false;
+                                }
+                            }
+                            sleep.as_mut().reset(Instant::now() + Duration::from_secs(SLEEP_SECOND));
+                        },
+                        () = async {}, if !done => {
                             let now = SystemTime::now();
                             while let Some(msg) = heap.peek() {
                                 if msg.delay_time.le(&now) {
@@ -70,28 +88,8 @@ impl QueueManager {
                                     break;
                                 }
                             }
-                        },
-                        () = &mut sleep => {
-                            match heap.peek() {
-                                None => {
-                                    logger::log_debug(&thread_ctx, "timer elapsed");
-                                    sleep.as_mut().reset(Instant::now() + Duration::from_secs(10));
-                                },
-                                Some(_) => {
-                                    let now = SystemTime::now();
-                                    while let Some(msg) = heap.peek() {
-                                        if msg.delay_time.le(&now) {
-                                            pop_message(msg, &thread_ctx).await;
-                                            heap.pop();
-                                        } else {
-                                            let sleep_time = msg.delay_time.duration_since(now).unwrap();
-                                            sleep.as_mut().reset(Instant::now() + sleep_time);
-                                            break;
-                                        }
-                                    }
-                                } 
-                            }
-                        },
+                            done = true;
+                        }
                     }
                 }
             })
@@ -107,13 +105,14 @@ impl QueueManager {
         mode: Mode,
     ) -> RedisResult {
         let msg = Msg::new(queue_name, msg, delay_time, mode);
+        let id = msg.id.clone();
         match self.tx.blocking_send(msg) {
-            Ok(()) => Ok("Ok".into()),
+            Ok(()) => Ok(id.into()),
             Err(e) => {
                 let err = format!("send message error: {:?}", e);
                 ctx.log_warning(err.as_str());
                 Err(RedisError::String(err))
-            },
+            }
         }
     }
 }

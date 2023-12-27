@@ -8,17 +8,15 @@ use crate::Mode;
 #[derive(Debug, Eq, Serialize)]
 pub(crate) struct Msg {
     pub(crate) id: String,
-    #[serde(skip)]
     pub(crate) queue_name: String,
     pub(crate) msg: String,
     pub(crate) delay_time: SystemTime,
-    #[serde(skip)]
     pub(crate) mode: Mode,
 }
 
 impl Msg {
     pub(crate) fn new(queue_name: String, msg: String, delay_time: SystemTime, mode: Mode) -> Self {
-        let id = Uuid::new_v4().to_string();
+        let id = Uuid::new_v4().to_string().replace("-", "");
         Self {
             id,
             queue_name,
