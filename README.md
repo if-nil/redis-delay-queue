@@ -49,7 +49,7 @@ delay_queue.push queue_name message delay_time mode
 
 ```
 127.0.0.1:6379> LRANGE my_queue 0 10
-1) "{\"id\":\"5e355e95e7d84c22b94bade9a28788c6\",\"queue_name\":\"my_queue\",\"msg\":\"my_message\",\"delay_time\":{\"secs_since_epoch\":1703684571,\"nanos_since_epoch\":192411990},\"mode\":\"P2P\"}"
+1) "{\"id\":\"5e355e95e7d84c22b94bade9a28788c6\",\"queue_name\":\"my_queue\",\"msg\":\"my_message\",\"delay_time\":1703684571,\"mode\":\"P2P\"}"
 ```
 
 Explanation: after 5 seconds, you can read the `my_message` inside the list named `my_queue`
@@ -68,6 +68,6 @@ Explanation: after 5 seconds, you can read the `my_message` inside the list name
 Reading messages... (press Ctrl-C to quit or any key to type
 1) "message"
 2) "my_queue"
-3) "{\"id\":\"aa6656ba5b57404aa2c74a27ba89d6f1\",\"queue_name\":\"my_queue\",\"msg\":\"my_message\",\"delay_time\":{\"secs_since_epoch\":1703684786,\"nanos_since_epoch\":334841998},\"mode\":\"Broadcast\"}"
+3) "{\"id\":\"aa6656ba5b57404aa2c74a27ba89d6f1\",\"queue_name\":\"my_queue\",\"msg\":\"my_message\",\"delay_time\":1703684786,\"mode\":\"Broadcast\"}"
 ```
 Explanation: If you are using `SUBSCRIBE my_queue` to listen for channel messages, then after 5s you can receive `my_message`
