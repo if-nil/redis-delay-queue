@@ -11,6 +11,20 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+#[cfg(not(test))]
+macro_rules! get_allocator {
+    () => {
+        redis_module::alloc::RedisAlloc
+    };
+}
+
+#[cfg(test)]
+macro_rules! get_allocator {
+    () => {
+        std::alloc::System
+    };
+}
+
 #[derive(Debug, Eq, Serialize)]
 enum Mode {
     P2P,
@@ -68,7 +82,7 @@ fn push_delay_message(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
 redis_module! {
     name: "delay_queue",
     version: 1,
-    allocator: (redis_module::alloc::RedisAlloc, redis_module::alloc::RedisAlloc),
+    allocator: (get_allocator!(), get_allocator!()),
     data_types: [],
     init: init,
     deinit: deinit,
