@@ -527,6 +527,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis-delay-queue"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "once_cell",
+ "redis-module",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "redis-module"
 version = "2.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -559,19 +572,6 @@ dependencies = [
  "proc-macro2",
  "quote 1.0.33",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "redis_delay_queue"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "once_cell",
- "redis-module",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
 ]
 
 [[package]]

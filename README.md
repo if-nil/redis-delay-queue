@@ -1,8 +1,8 @@
-# redis_delay_queue
+# redis-delay-queue
 
 ## Overview
 
-`redis_delay_queue` is a [redis module](https://redis.io/docs/reference/modules/) that implements a delay queue. 
+`redis-delay-queue` is a [redis module](https://redis.io/docs/reference/modules/) that implements a delay queue. 
 
 You can push a message and receive a message id, which can be received in the list or pub/sub after `delay_time` seconds.
 
