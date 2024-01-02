@@ -1,27 +1,53 @@
-use crate::{logger, msg::Msg, Mode};
-use redis_module::{Context, DetachedFromClient, RedisError, RedisResult, ThreadSafeContext};
+use crate::{
+    logger,
+    msg_type::{Mode, Msg, MsgHeap, MSG_HEAP_TYPE},
+};
+use redis_module::{ContextGuard, RedisError, RedisString, ThreadSafeContext};
 use std::{
-    collections::BinaryHeap,
+    sync::Arc,
     thread,
     time::{Duration, SystemTime},
 };
 use tokio::{
     select,
-    sync::mpsc,
+    sync::Notify,
     time::{self, Instant},
 };
 
 const SLEEP_SECOND: u64 = 10;
+pub const KEY: &str = "DELAY_QUEUE_dh234hgtrf5f34yRr65r6";
 
 pub(crate) struct QueueManager {
     // 用来发送新队列或者延迟消息的tx
-    tx: mpsc::Sender<Msg>,
+    notify: Arc<Notify>,
+}
+
+fn handle_heap_msg(ctx: &ContextGuard) -> Result<Duration, RedisError> {
+    let key = ctx.open_key_writable(&RedisString::create(None, KEY));
+    let mut d = Duration::from_secs(SLEEP_SECOND);
+    if let Some(v) = key.get_value::<MsgHeap>(&MSG_HEAP_TYPE)? {
+        let now = SystemTime::now();
+        let mut flag = false;
+        while let Some(msg) = v.heap.peek() {
+            if msg.delay_time.le(&now) {
+                pop_message(msg, &ctx);
+                v.heap.pop();
+                flag = true;
+            } else {
+                d = msg.delay_time.duration_since(now).unwrap();
+                break;
+            }
+        }
+        if flag {
+            key.set_value(&MSG_HEAP_TYPE, v)?;
+        }
+    };
+    Ok(d)
 }
 
 // 发送命令
-async fn pop_message(msg: &Msg, thread_ctx: &ThreadSafeContext<DetachedFromClient>) {
+fn pop_message(msg: &Msg, ctx: &ContextGuard) {
     let msg_json = serde_json::to_string(msg).unwrap();
-    let ctx = thread_ctx.lock();
     match msg.mode {
         Mode::P2P => {
             ctx.call("RPUSH", &[msg.queue_name.as_bytes(), msg_json.as_bytes()])
@@ -32,61 +58,49 @@ async fn pop_message(msg: &Msg, thread_ctx: &ThreadSafeContext<DetachedFromClien
                 .unwrap();
         }
     }
-    drop(ctx);
 }
 
 impl QueueManager {
     pub(crate) fn new() -> Self {
-        let (tx, rx) = mpsc::channel(16);
-        let q = Self { tx };
-        q._start(rx);
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+        let q = Self { notify };
+        q._start(notify2);
         q
     }
 
-    fn _start(&self, mut rx: mpsc::Receiver<Msg>) {
+    fn _start(&self, notify: Arc<Notify>) {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
         thread::spawn(move || {
             rt.block_on(async move {
-                // 构建延迟队列
-                let mut heap: BinaryHeap<Msg> = BinaryHeap::new();
                 let sleep = time::sleep(Duration::from_secs(SLEEP_SECOND));
                 let thread_ctx = ThreadSafeContext::new();
                 tokio::pin!(sleep);
-                let mut done = true;
+                let mut done = false;
                 loop {
                     select! {
-                        msg = rx.recv() => {
-                            if let Some(msg) = msg {
-                                logger::log_debug(&thread_ctx, format!("recv msg {:?}", msg).as_str());
-                                heap.push(msg);
-                            }
+                        () = notify.notified() => {
                             done = false;
                         },
                         () = &mut sleep => {
-                            match heap.peek() {
-                                None => {
-                                    logger::log_debug(&thread_ctx, "timer elapsed");
-                                },
-                                Some(_) => {
-                                    done = false;
-                                }
-                            }
+                            done = false;
                             sleep.as_mut().reset(Instant::now() + Duration::from_secs(SLEEP_SECOND));
                         },
                         () = async {}, if !done => {
-                            let now = SystemTime::now();
-                            while let Some(msg) = heap.peek() {
-                                if msg.delay_time.le(&now) {
-                                    pop_message(msg, &thread_ctx).await;
-                                    heap.pop();
-                                } else {
-                                    let sleep_time = msg.delay_time.duration_since(now).unwrap();
-                                    sleep.as_mut().reset(Instant::now() + sleep_time);
-                                    break;
-                                }
+                            let ctx = thread_ctx.lock();
+                            let res = handle_heap_msg(&ctx);
+                            drop(ctx);
+                            match res {
+                                Ok(d) => {
+                                    sleep.as_mut().reset(Instant::now() + d);
+                                },
+                                Err(e) => {
+                                    logger::log_warning(&thread_ctx, format!("handle delay msg failed: {}", e).as_str());
+                                    sleep.as_mut().reset(Instant::now() + Duration::from_secs(SLEEP_SECOND));
+                                },
                             }
                             done = true;
                         }
@@ -96,23 +110,7 @@ impl QueueManager {
         });
     }
 
-    pub(crate) fn push_delay_message(
-        &self,
-        ctx: &Context,
-        queue_name: String,
-        msg: String,
-        delay_time: SystemTime,
-        mode: Mode,
-    ) -> RedisResult {
-        let msg = Msg::new(queue_name, msg, delay_time, mode);
-        let id = msg.id.clone();
-        match self.tx.blocking_send(msg) {
-            Ok(()) => Ok(id.into()),
-            Err(e) => {
-                let err = format!("send message error: {:?}", e);
-                ctx.log_warning(err.as_str());
-                Err(RedisError::String(err))
-            }
-        }
+    pub(crate) fn trigger(&self) {
+        self.notify.notify_one();
     }
 }
