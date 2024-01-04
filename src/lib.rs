@@ -57,10 +57,10 @@ fn push_delay_message(ctx: &Context, args: Vec<RedisString>) -> RedisResult {
     let id = msg.id.clone();
     let key = ctx.open_key_writable(&RedisString::create(None, KEY));
     if let Some(value) = key.get_value::<MsgHeap>(&MSG_HEAP_TYPE)? {
-        value.heap.push(msg);
+        value.push(msg);
     } else {
         let mut value = MsgHeap::new();
-        value.heap.push(msg);
+        value.push(msg);
         key.set_value(&MSG_HEAP_TYPE, value)?;
     };
     MANAGER.borrow().trigger();

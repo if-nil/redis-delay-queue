@@ -1,7 +1,8 @@
 use std::{
-    collections::BinaryHeap,
+    collections::{BinaryHeap, HashMap},
     ops::Add,
     os::raw::{c_int, c_void},
+    rc::Rc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -13,13 +14,54 @@ use serde::{Serialize, Serializer};
 use uuid::Uuid;
 
 pub(crate) struct MsgHeap {
-    pub(crate) heap: BinaryHeap<Msg>,
+    heap: BinaryHeap<Rc<Msg>>,
+    hash: HashMap<String, HashMap<String, Rc<Msg>>>,
+}
+
+impl MsgHeap {
+    pub(crate) fn push(&mut self, item: Msg) {
+        let item = Rc::new(item);
+        self.heap.push(item.clone());
+        let queue_name = item.queue_name.clone();
+        match self.hash.get_mut(&queue_name) {
+            Some(m) => {
+                m.insert(item.id.clone(), item);
+            }
+            None => {
+                let mut m = HashMap::new();
+                m.insert(item.id.clone(), item);
+                self.hash.insert(queue_name, m);
+            }
+        }
+    }
+
+    pub(crate) fn pop(&mut self) -> Option<Rc<Msg>> {
+        let v = match self.heap.pop() {
+            Some(v) => v,
+            None => return None,
+        };
+        match self.hash.get_mut(&v.queue_name) {
+            Some(m) => {
+                m.remove(&v.id);
+            }
+            _ => (),
+        }
+        return Some(v);
+    }
+
+    pub(crate) fn peek(&self) -> Option<Rc<Msg>> {
+        match self.heap.peek() {
+            Some(v) => Some(v.clone()),
+            None => None,
+        }
+    }
 }
 
 impl MsgHeap {
     pub(crate) fn new() -> Self {
         Self {
             heap: BinaryHeap::new(),
+            hash: HashMap::new(),
         }
     }
 }
@@ -99,13 +141,14 @@ pub unsafe extern "C" fn rdb_load(rdb: *mut raw::RedisModuleIO, encver: c_int) -
             .unwrap();
         let delay_time = SystemTime::from(UNIX_EPOCH.add(Duration::from_nanos(nanos as u64)));
         let mode = Mode::from_str(load_string(rdb).unwrap().to_string()).unwrap();
-        heap.heap.push(Msg {
+        let msg = Msg {
             id,
             queue_name,
             msg,
             delay_time,
             mode,
-        });
+        };
+        heap.push(msg);
         len -= 1;
     }
     Box::into_raw(Box::new(heap)) as *mut c_void

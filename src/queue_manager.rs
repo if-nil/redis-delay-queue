@@ -4,6 +4,7 @@ use crate::{
 };
 use redis_module::{ContextGuard, RedisError, RedisString, ThreadSafeContext};
 use std::{
+    rc::Rc,
     sync::Arc,
     thread,
     time::{Duration, SystemTime},
@@ -28,10 +29,10 @@ fn handle_heap_msg(ctx: &ContextGuard) -> Result<Duration, RedisError> {
     if let Some(v) = key.get_value::<MsgHeap>(&MSG_HEAP_TYPE)? {
         let now = SystemTime::now();
         let mut flag = false;
-        while let Some(msg) = v.heap.peek() {
+        while let Some(msg) = v.peek() {
             if msg.delay_time.le(&now) {
-                pop_message(msg, &ctx);
-                v.heap.pop();
+                pop_message(msg.clone(), &ctx);
+                v.pop();
                 flag = true;
             } else {
                 d = msg.delay_time.duration_since(now).unwrap();
@@ -46,8 +47,8 @@ fn handle_heap_msg(ctx: &ContextGuard) -> Result<Duration, RedisError> {
 }
 
 // 发送命令
-fn pop_message(msg: &Msg, ctx: &ContextGuard) {
-    let msg_json = serde_json::to_string(msg).unwrap();
+fn pop_message(msg: Rc<Msg>, ctx: &ContextGuard) {
+    let msg_json = serde_json::to_string(msg.as_ref()).unwrap();
     match msg.mode {
         Mode::P2P => {
             ctx.call("RPUSH", &[msg.queue_name.as_bytes(), msg_json.as_bytes()])
